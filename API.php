@@ -6,6 +6,8 @@ declare(strict_types=1);
  */
 function api_tool_send_json(array $payload): void
 {
+    header('X-Frame-Options: DENY');
+    header('Referrer-Policy: no-referrer');
     header('Content-Type: application/json; charset=UTF-8');
     header('X-Content-Type-Options: nosniff');
     echo json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
@@ -656,6 +658,13 @@ if (isset($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] === 'POST') 
         }
     }
 }
+
+$scriptNonce = base64_encode(random_bytes(18));
+header('X-Frame-Options: DENY');
+header('Referrer-Policy: no-referrer');
+header('X-Content-Type-Options: nosniff');
+header('Content-Type: text/html; charset=UTF-8');
+header("Content-Security-Policy: default-src 'self'; script-src 'self' 'nonce-{$scriptNonce}'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' http: https:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'");
 ?>
 <!DOCTYPE html>
 <html lang="ja">
@@ -1513,10 +1522,10 @@ if (isset($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] === 'POST') 
     <div class="top-bar">
         <h1>One-File API Tester</h1>
         <div class="top-tools">
-        <button type="button" id="manualSaveBtn" class="tool-btn save-btn" onclick="void saveCurrentRequestManually()">Save</button>
-        <button type="button" id="emergencyStopBtn" class="tool-btn stop-btn hidden" onclick="requestBatchStop()">Stop Execution</button>
-        <button type="button" class="tool-btn" onclick="toggleSavedPanel()">Collections</button>
-        <button type="button" class="tool-btn gear-btn" onclick="toggleSettingsPanel()" aria-label="Settings">⚙</button>
+        <button type="button" id="manualSaveBtn" class="tool-btn save-btn">Save</button>
+        <button type="button" id="emergencyStopBtn" class="tool-btn stop-btn hidden">Stop Execution</button>
+        <button type="button" id="toggleSavedPanelBtn" class="tool-btn">Collections</button>
+        <button type="button" id="toggleSettingsPanelBtn" class="tool-btn gear-btn" aria-label="Settings">⚙</button>
         <input type="file" id="bulkRequestFileInput" accept=".json,application/json" multiple class="hidden">
 
         <div id="savedPanel" class="hidden">
@@ -1533,16 +1542,16 @@ if (isset($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] === 'POST') 
                         <div class="header-row">
                             <input type="text" class="var-key" placeholder="{{Email}}" value="{{Email}}">
                             <input type="text" class="var-value" placeholder="Variable Value (例: example@domain.com)">
-                            <button type="button" onclick="removeVariableRow(this)">×</button>
+                            <button type="button" class="row-remove-btn" data-row-type="variable">×</button>
                         </div>
                     </div>
-                    <button type="button" class="sub-btn" onclick="addVariableRow()">+ 変数を追加</button>
+                    <button type="button" id="addVariableRowBtn" class="sub-btn">+ 変数を追加</button>
                 </div>
             </details>
             <details class="settings-item" style="margin-top:8px;">
                 <summary>Import</summary>
                 <div class="settings-content">
-                    <button type="button" class="sub-btn" onclick="triggerBulkRequestImport()">+ Import JSON</button>
+                    <button type="button" id="triggerBulkImportBtn" class="sub-btn">+ Import JSON</button>
                 </div>
             </details>
         </div>
@@ -1572,7 +1581,7 @@ if (isset($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] === 'POST') 
                 <option value="DELETE">DELETE</option>
             </select>
             <input type="text" id="urlInput" placeholder="https://jsonplaceholder.typicode.com/todos/1" value="https://jsonplaceholder.typicode.com/todos/1">
-            <button id="sendBtn" class="send-inline-btn" onclick="executeRequest()">Send</button>
+            <button id="sendBtn" class="send-inline-btn">Send</button>
         </div>
     </div>
 
@@ -1593,10 +1602,10 @@ if (isset($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] === 'POST') 
                 <div class="header-row">
                     <input type="text" class="header-key" placeholder="Header Name (例: Authorization)">
                     <input type="text" class="header-value" placeholder="Header Value (例: Bearer xxx)">
-                    <button type="button" onclick="removeHeaderRow(this)">×</button>
+                    <button type="button" class="row-remove-btn" data-row-type="header">×</button>
                 </div>
             </div>
-            <button type="button" class="sub-btn" onclick="addHeaderRow()">+ Headerを追加</button>
+            <button type="button" id="addHeaderRowBtn" class="sub-btn">+ Headerを追加</button>
         </div>
     </details>
 
@@ -1608,10 +1617,10 @@ if (isset($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] === 'POST') 
                 <div class="header-row">
                     <input type="text" class="body-key" placeholder="Key (例: name)">
                     <input type="text" class="body-value" placeholder="Value (例: taro)">
-                    <button type="button" onclick="removeBodyRow(this)">×</button>
+                    <button type="button" class="row-remove-btn" data-row-type="body">×</button>
                 </div>
             </div>
-            <button type="button" class="sub-btn" onclick="addBodyRow()">+ Body項目を追加</button>
+            <button type="button" id="addBodyRowBtn" class="sub-btn">+ Body項目を追加</button>
         </div>
     </div>
 
@@ -1635,7 +1644,7 @@ if (isset($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] === 'POST') 
     </div>
 </div>
 
-<script>
+<script nonce="<?php echo htmlspecialchars($scriptNonce, ENT_QUOTES, 'UTF-8'); ?>">
     const API_PROXY_ENDPOINT = <?php echo json_encode($_SERVER['SCRIPT_NAME'] ?? 'API.php', JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE); ?>;
     let savedRequests = [];
     const collapsedCollections = new Set();
@@ -2733,7 +2742,7 @@ if (isset($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] === 'POST') 
             row.innerHTML = `
                 <input type="text" class="header-key" placeholder="Header Name (例: Authorization)">
                 <input type="text" class="header-value" placeholder="Header Value (例: Bearer xxx)">
-                <button type="button" onclick="removeHeaderRow(this)">×</button>
+                <button type="button" class="row-remove-btn" data-row-type="header">×</button>
             `;
             row.querySelector(".header-key").value = String(key ?? "");
             row.querySelector(".header-value").value = String(value ?? "");
@@ -2752,7 +2761,7 @@ if (isset($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] === 'POST') 
             row.innerHTML = `
                 <input type="text" class="body-key" placeholder="Key (例: email)">
                 <input type="text" class="body-value" placeholder="Value (例: user@example.com)">
-                <button type="button" onclick="removeBodyRow(this)">×</button>
+                <button type="button" class="row-remove-btn" data-row-type="body">×</button>
             `;
             row.querySelector(".body-key").value = String(key ?? "");
             row.querySelector(".body-value").value = String(value ?? "");
@@ -2771,7 +2780,7 @@ if (isset($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] === 'POST') 
             row.innerHTML = `
                 <input type="text" class="var-key" placeholder="{{Email}}">
                 <input type="text" class="var-value" placeholder="Variable Value (例: example@domain.com)">
-                <button type="button" onclick="removeVariableRow(this)">×</button>
+                <button type="button" class="row-remove-btn" data-row-type="variable">×</button>
             `;
             row.querySelector(".var-key").value = wrapVariableKey(String(key ?? ""));
             row.querySelector(".var-value").value = String(value ?? "");
@@ -2863,7 +2872,7 @@ if (isset($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] === 'POST') 
         row.innerHTML = `
             <input type="text" class="body-key" placeholder="Key (例: email)">
             <input type="text" class="body-value" placeholder="Value (例: user@example.com)">
-            <button type="button" onclick="removeBodyRow(this)">×</button>
+            <button type="button" class="row-remove-btn" data-row-type="body">×</button>
         `;
         list.appendChild(row);
     }
@@ -2886,7 +2895,7 @@ if (isset($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] === 'POST') 
         row.innerHTML = `
             <input type="text" class="header-key" placeholder="Header Name (例: Authorization)">
             <input type="text" class="header-value" placeholder="Header Value (例: Bearer xxx)">
-            <button type="button" onclick="removeHeaderRow(this)">×</button>
+            <button type="button" class="row-remove-btn" data-row-type="header">×</button>
         `;
         list.appendChild(row);
     }
@@ -2909,7 +2918,7 @@ if (isset($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] === 'POST') 
         row.innerHTML = `
             <input type="text" class="var-key" placeholder="{{Email}}">
             <input type="text" class="var-value" placeholder="Variable Value (例: example@domain.com)">
-            <button type="button" onclick="removeVariableRow(this)">×</button>
+            <button type="button" class="row-remove-btn" data-row-type="variable">×</button>
         `;
         list.appendChild(row);
         scheduleSharedVariablesSave();
@@ -2979,9 +2988,35 @@ if (isset($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] === 'POST') 
     document.getElementById("method").addEventListener("change", updateMethodDependentState);
     document.getElementById("contentTypeSelect").addEventListener("change", updateBodyInputMode);
     document.getElementById("bulkRequestFileInput").addEventListener("change", handleBulkRequestImport);
+    document.getElementById("manualSaveBtn").addEventListener("click", () => {
+        void saveCurrentRequestManually();
+    });
+    document.getElementById("emergencyStopBtn").addEventListener("click", requestBatchStop);
+    document.getElementById("toggleSavedPanelBtn").addEventListener("click", toggleSavedPanel);
+    document.getElementById("toggleSettingsPanelBtn").addEventListener("click", toggleSettingsPanel);
+    document.getElementById("triggerBulkImportBtn").addEventListener("click", triggerBulkRequestImport);
+    document.getElementById("sendBtn").addEventListener("click", executeRequest);
+    document.getElementById("addHeaderRowBtn").addEventListener("click", addHeaderRow);
+    document.getElementById("addBodyRowBtn").addEventListener("click", addBodyRow);
+    document.getElementById("addVariableRowBtn").addEventListener("click", addVariableRow);
     document.getElementById("headersViewBtn").addEventListener("click", () => setResponseViewTarget("headers"));
     document.getElementById("formattedViewBtn").addEventListener("click", () => setResponseViewMode("formatted"));
     document.getElementById("rawViewBtn").addEventListener("click", () => setResponseViewMode("raw"));
+    document.getElementById("headersList").addEventListener("click", (event) => {
+        const btn = event.target.closest('button[data-row-type="header"]');
+        if (!btn) return;
+        removeHeaderRow(btn);
+    });
+    document.getElementById("bodyKeyValueList").addEventListener("click", (event) => {
+        const btn = event.target.closest('button[data-row-type="body"]');
+        if (!btn) return;
+        removeBodyRow(btn);
+    });
+    document.getElementById("variablesList").addEventListener("click", (event) => {
+        const btn = event.target.closest('button[data-row-type="variable"]');
+        if (!btn) return;
+        removeVariableRow(btn);
+    });
     document.getElementById("variablesList").addEventListener("input", () => {
         scheduleSharedVariablesSave();
     });
