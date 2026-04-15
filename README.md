@@ -58,6 +58,62 @@ php -S 127.0.0.1:8000
 - 共有変数保存先: `api_tool_shared_variables/variables.json`
 - UI上の `Save` で現在のリクエストを保存できます
 
+## インポートJSONフォーマット
+
+インポートは **1ファイルにつき1リクエスト** のJSONを想定しています。  
+最低限、`method` と `url` があれば使えます（不足時は既定値にフォールバック）。
+
+### 最小フォーマット
+
+```json
+{
+  "method": "GET",
+  "url": "https://example.com/api/users"
+}
+```
+
+### 推奨フォーマット（フル）
+
+```json
+{
+  "id": "local_post_form_login",
+  "path": "local/auth",
+  "title": "[LOCAL] POST Form Login",
+  "method": "POST",
+  "url": "https://httpbin.org/post",
+  "contentType": "application/x-www-form-urlencoded",
+  "headers": {
+    "Accept": "application/json"
+  },
+  "body": "",
+  "bodyParams": {
+    "email": "{{Email}}",
+    "password": "{{Password}}"
+  },
+  "variables": {
+    "Email": "user@example.com",
+    "Password": "secret"
+  }
+}
+```
+
+### 使えるキー
+
+- `method` (GET/POST/PUT/PATCH/DELETE。未指定時は GET)
+- `url` (`endpoint` でも可)
+- `title` (`name` でも可)
+- `path` (保存先の論理フォルダ名)
+- `headers` (オブジェクト)
+- `contentType` (`content-type` でも可)
+- `body` (文字列、またはオブジェクト)
+- `bodyParams` (フォーム送信用のキー/値オブジェクト)
+- `variables` (Shared Variables にマージされるキー/値)
+
+### 補足
+
+- インポート時の保存ファイル名は、基本的に **インポートしたJSONファイル名** が使われます。
+- `contentType` が `application/json` の場合、`body` は保存時にJSONとして正規化されます。
+
 ## よくあるエラー
 
 - `PHP の cURL 拡張が有効ではありません`  
