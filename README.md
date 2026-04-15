@@ -57,6 +57,7 @@ php -S 127.0.0.1:8000
 - リクエスト保存先: `api_tool_saved_requests/`
 - 共有変数保存先: `api_tool_shared_variables/variables.json`
 - UI上の `Save` で現在のリクエストを保存できます
+- Collections パネルの `Run All` で、collection単位に全リクエストを順次実行できます
 
 ## インポートJSONフォーマット
 

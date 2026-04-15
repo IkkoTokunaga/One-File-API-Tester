@@ -1108,6 +1108,42 @@ if (isset($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] === 'POST') 
             background: #ffedd5;
         }
 
+        .saved-collection-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-top: 12px;
+            margin-bottom: 6px;
+        }
+
+        .saved-collection-header .saved-collection-toggle {
+            margin: 0;
+            flex: 1;
+        }
+
+        .saved-collection-run {
+            width: auto;
+            min-width: 78px;
+            height: 34px;
+            padding: 8px 10px;
+            border-radius: 8px;
+            border: 1px solid #fdba74;
+            background: #ffedd5;
+            color: #9a3412;
+            font-size: 0.78rem;
+            font-weight: 800;
+            letter-spacing: 0.03em;
+            text-transform: uppercase;
+            line-height: 1;
+        }
+
+        .saved-collection-run:hover {
+            transform: none;
+            filter: none;
+            box-shadow: none;
+            background: #fdba74;
+        }
+
         .saved-collection-caret {
             width: 1.1em;
             display: inline-block;
@@ -1360,6 +1396,75 @@ if (isset($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] === 'POST') 
             transform: translateX(-50%) translateY(0);
         }
 
+        .batch-toast-stack {
+            position: fixed;
+            top: 120px;
+            right: 16px;
+            z-index: 900;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            width: min(420px, calc(100vw - 24px));
+            pointer-events: none;
+        }
+
+        .batch-toast {
+            pointer-events: auto;
+            display: flex;
+            align-items: flex-start;
+            gap: 8px;
+            border-radius: 10px;
+            padding: 9px 10px;
+            border: 1px solid #cbd5e1;
+            background: #f8fafc;
+            color: #0f172a;
+            box-shadow: 0 6px 18px rgba(15, 23, 42, 0.18);
+            font-size: 0.78rem;
+            line-height: 1.35;
+        }
+
+        .batch-toast--ok {
+            border-color: #86efac;
+            background: #f0fdf4;
+            color: #166534;
+        }
+
+        .batch-toast--error {
+            border-color: #fecaca;
+            background: #fef2f2;
+            color: #991b1b;
+        }
+
+        .batch-toast--summary {
+            font-size: 0.86rem;
+            font-weight: 800;
+            border-width: 2px;
+            line-height: 1.5;
+            white-space: pre-line;
+        }
+
+        .batch-toast__close {
+            margin-left: auto;
+            width: 22px;
+            min-width: 22px;
+            height: 22px;
+            border-radius: 999px;
+            padding: 0;
+            border: 1px solid #cbd5e1;
+            background: #fff;
+            color: #334155;
+            font-size: 0.78rem;
+            line-height: 1;
+            cursor: pointer;
+        }
+
+        .batch-toast__close:hover {
+            transform: none;
+            filter: none;
+            box-shadow: none;
+            background: #f1f5f9;
+        }
+
         @keyframes saveBtnFlash {
             0% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.55); }
             100% { box-shadow: 0 0 0 14px rgba(34, 197, 94, 0); }
@@ -1382,6 +1487,7 @@ if (isset($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] === 'POST') 
 </head>
 <body>
 <div id="saveToast" class="save-toast" role="status" aria-live="polite" aria-atomic="true"></div>
+<div id="batchToastStack" class="batch-toast-stack" aria-live="polite" aria-atomic="false"></div>
 <div id="menuBackdrop" aria-hidden="true"></div>
 <div class="container">
     <div class="top-bar">
@@ -1522,6 +1628,8 @@ if (isset($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] === 'POST') 
     let responseRawText = "";
     let responseFormattedText = "";
     let responseHeadersText = "";
+    let collectionRunInProgress = false;
+    const BATCH_TOAST_MAX_COUNT = 8;
 
     function renderResponseBody() {
         const output = document.getElementById("output");
@@ -1666,6 +1774,41 @@ if (isset($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] === 'POST') 
         return `Saved: ${short}.json`;
     }
 
+    function pushBatchToast(message, type = "info", timeoutMs = 14000, variant = "") {
+        const stack = document.getElementById("batchToastStack");
+        if (!stack) return;
+        const toast = document.createElement("div");
+        const normalizedType = type === "error" ? "error" : (type === "ok" ? "ok" : "info");
+        toast.dataset.toastType = normalizedType;
+        const normalizedVariant = String(variant || "").trim().toLowerCase();
+        toast.className = `batch-toast${normalizedType === "ok" ? " batch-toast--ok" : ""}${normalizedType === "error" ? " batch-toast--error" : ""}${normalizedVariant === "summary" ? " batch-toast--summary" : ""}`;
+        const textEl = document.createElement("div");
+        textEl.textContent = String(message || "");
+        const closeBtn = document.createElement("button");
+        closeBtn.type = "button";
+        closeBtn.className = "batch-toast__close";
+        closeBtn.textContent = "×";
+        closeBtn.setAttribute("aria-label", "Close");
+        closeBtn.addEventListener("click", () => {
+            toast.remove();
+        });
+        toast.append(textEl, closeBtn);
+        stack.appendChild(toast);
+        while (stack.children.length > BATCH_TOAST_MAX_COUNT) {
+            const removableOk = Array.from(stack.children).find((el) => el instanceof HTMLElement && el.dataset.toastType === "ok");
+            if (removableOk) {
+                removableOk.remove();
+                continue;
+            }
+            stack.firstElementChild?.remove();
+        }
+        if (timeoutMs > 0) {
+            setTimeout(() => {
+                toast.remove();
+            }, timeoutMs);
+        }
+    }
+
     async function apiJsonPost(payload) {
         const res = await fetch(API_PROXY_ENDPOINT, {
             method: "POST",
@@ -1684,103 +1827,177 @@ if (isset($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] === 'POST') 
         return data;
     }
 
-    async function executeRequest() {
-        const btn = document.getElementById('sendBtn');
-        const output = document.getElementById('output');
-        const statusTag = document.getElementById('statusTag');
-        const originalBtnLabel = btn.innerText;
-        
+    function buildRequestPayloadFromForm() {
         const variableValues = getVariableValues();
-        const rawUrl = document.getElementById('urlInput').value;
-        const url = applyVariables(rawUrl, variableValues);
-        const method = document.getElementById('method').value;
+        const rawUrl = document.getElementById("urlInput").value;
+        const url = applyVariables(rawUrl, variableValues).trim();
+        const method = String(document.getElementById("method").value || "GET").toUpperCase();
+        if (!url) {
+            throw new Error("URLを入力してください");
+        }
+        const headers = getHeadersFromInputs(method, variableValues);
+        const shouldSendBody = !["GET", "HEAD"].includes(method);
+        let body = "";
+        if (shouldSendBody) {
+            const headerKeys = Object.keys(headers);
+            const contentTypeKey = headerKeys.find((key) => key.toLowerCase() === "content-type");
+            const contentTypeValue = contentTypeKey ? String(headers[contentTypeKey]).toLowerCase() : "";
+            const bodyRaw = applyVariables(document.getElementById("bodyRawInput").value.trim(), variableValues);
+            if (contentTypeValue.includes("application/x-www-form-urlencoded")) {
+                const bodyParams = getBodyKeyValueParams(variableValues);
+                body = new URLSearchParams(bodyParams).toString();
+            } else if (bodyRaw) {
+                if (contentTypeValue.includes("application/json")) {
+                    const parsedBody = JSON.parse(bodyRaw);
+                    body = JSON.stringify(parsedBody);
+                    if (!contentTypeKey) {
+                        headers["Content-Type"] = "application/json";
+                    }
+                } else {
+                    body = bodyRaw;
+                }
+            }
+        }
+        return { url, method, headers, body };
+    }
 
-        if (!url) return alert("URLを入力してください");
+    function buildHeadersFromConfig(config, variableValues) {
+        const method = String(config?.method || "GET").toUpperCase();
+        const selectedContentType = String(config?.contentType || config?.["content-type"] || "");
+        const headersIn = (config?.headers && typeof config.headers === "object") ? config.headers : {};
+        const forbiddenHeaderNames = new Set(["content-type"]);
+        const headers = {};
+        if (method !== "GET" && selectedContentType) {
+            headers["Content-Type"] = selectedContentType;
+        }
+        for (const [rawKey, rawValue] of Object.entries(headersIn)) {
+            const key = applyVariables(String(rawKey || "").trim(), variableValues);
+            const value = applyVariables(String(rawValue ?? "").trim(), variableValues);
+            if (!key) continue;
+            if (forbiddenHeaderNames.has(key.toLowerCase())) continue;
+            headers[key] = value;
+        }
+        return headers;
+    }
+
+    function buildBodyFromConfig(config, headers, variableValues) {
+        const method = String(config?.method || "GET").toUpperCase();
+        const shouldSendBody = !["GET", "HEAD"].includes(method);
+        if (!shouldSendBody) {
+            return "";
+        }
+        const headerKeys = Object.keys(headers);
+        const contentTypeKey = headerKeys.find((key) => key.toLowerCase() === "content-type");
+        const contentTypeValue = contentTypeKey ? String(headers[contentTypeKey]).toLowerCase() : "";
+        if (contentTypeValue.includes("application/x-www-form-urlencoded")) {
+            const bodyParamsIn = (config?.bodyParams && typeof config.bodyParams === "object")
+                ? config.bodyParams
+                : ((config?.body && typeof config.body === "object" && !Array.isArray(config.body)) ? config.body : {});
+            const bodyParams = {};
+            for (const [rawKey, rawValue] of Object.entries(bodyParamsIn)) {
+                const key = applyVariables(String(rawKey || "").trim(), variableValues);
+                const value = applyVariables(String(rawValue ?? ""), variableValues);
+                if (key) bodyParams[key] = value;
+            }
+            return new URLSearchParams(bodyParams).toString();
+        }
+        let bodyRaw = "";
+        if (typeof config?.body === "string") {
+            bodyRaw = config.body;
+        } else if (config?.body && typeof config.body === "object" && !Array.isArray(config.body)) {
+            bodyRaw = JSON.stringify(config.body);
+        }
+        bodyRaw = applyVariables(String(bodyRaw || "").trim(), variableValues);
+        if (!bodyRaw) {
+            return "";
+        }
+        if (contentTypeValue.includes("application/json")) {
+            const parsedBody = JSON.parse(bodyRaw);
+            if (!contentTypeKey) {
+                headers["Content-Type"] = "application/json";
+            }
+            return JSON.stringify(parsedBody);
+        }
+        return bodyRaw;
+    }
+
+    function buildRequestPayloadFromConfig(config, variableValues) {
+        const normalizedConfig = normalizeSavedItemConfig(config);
+        const url = applyVariables(String(normalizedConfig.url || "").trim(), variableValues);
+        const method = String(normalizedConfig.method || "GET").toUpperCase();
+        if (!url) {
+            throw new Error("URLが空です");
+        }
+        const headers = buildHeadersFromConfig(normalizedConfig, variableValues);
+        const body = buildBodyFromConfig(normalizedConfig, headers, variableValues);
+        return { url, method, headers, body };
+    }
+
+    async function executeRequestPayload(payload) {
+        const startTime = performance.now();
+        const proxyRes = await fetch(API_PROXY_ENDPOINT, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ action: "http_request", ...payload })
+        });
+        const endTime = performance.now();
+        const clientDuration = Math.round(endTime - startTime);
+
+        let data;
+        try {
+            data = await proxyRes.json();
+        } catch (e) {
+            throw new Error("サーバー応答がJSONではありません（PHPの実行エラーの可能性があります）");
+        }
+
+        if (data && data.error && (!data.status || data.status === 0)) {
+            throw new Error(String(data.error));
+        }
+        if (!proxyRes.ok) {
+            throw new Error(data && data.error ? String(data.error) : `HTTP ${proxyRes.status}`);
+        }
+
+        const status = typeof data.status === "number" ? data.status : 0;
+        const serverDuration = typeof data.duration_ms === "number" ? data.duration_ms : clientDuration;
+        const ok = typeof data.ok === "boolean" ? data.ok : (status >= 200 && status < 300);
+        const contentType = String(data.responseContentType || "").toLowerCase();
+        const headersRaw = String(data.responseHeaders || "");
+        let rawData = data.body !== undefined && data.body !== null ? String(data.body) : "";
+        let formattedData = rawData;
+        if (contentType.includes("application/json") && formattedData) {
+            try {
+                formattedData = JSON.stringify(JSON.parse(formattedData), null, 4);
+            } catch (e) {
+                // 整形できない場合は生テキストのまま
+            }
+        }
+        if (!rawData) {
+            rawData = "(empty body)";
+            formattedData = "(empty body)";
+        }
+        return { ok, status, serverDuration, rawData, formattedData, headersRaw };
+    }
+
+    async function executeRequest() {
+        const btn = document.getElementById("sendBtn");
+        const output = document.getElementById("output");
+        const statusTag = document.getElementById("statusTag");
+        const originalBtnLabel = btn.innerText;
 
         btn.disabled = true;
         btn.innerText = "通信中...";
         setResponseTexts("Waiting for response...", "Waiting for response...", "");
         statusTag.innerText = "";
-        output.classList.remove('error');
+        output.classList.remove("error");
 
         try {
-            const headers = getHeadersFromInputs(method, variableValues);
-            const shouldSendBody = !["GET", "HEAD"].includes(method);
-            let bodyString = "";
-
-            if (shouldSendBody) {
-                const headerKeys = Object.keys(headers);
-                const contentTypeKey = headerKeys.find((key) => key.toLowerCase() === "content-type");
-                const contentTypeValue = contentTypeKey ? String(headers[contentTypeKey]).toLowerCase() : "";
-                const bodyRaw = applyVariables(document.getElementById("bodyRawInput").value.trim(), variableValues);
-
-                if (contentTypeValue.includes("application/x-www-form-urlencoded")) {
-                    const bodyParams = getBodyKeyValueParams(variableValues);
-                    bodyString = new URLSearchParams(bodyParams).toString();
-                } else if (bodyRaw) {
-                    if (contentTypeValue.includes("application/json")) {
-                        const parsedBody = JSON.parse(bodyRaw);
-                        bodyString = JSON.stringify(parsedBody);
-                        if (!contentTypeKey) {
-                            headers["Content-Type"] = "application/json";
-                        }
-                    } else {
-                        bodyString = bodyRaw;
-                    }
-                }
-            }
-
-            const startTime = performance.now();
-            const proxyRes = await fetch(API_PROXY_ENDPOINT, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ action: "http_request", url, method, headers, body: bodyString })
-            });
-            const endTime = performance.now();
-            const clientDuration = Math.round(endTime - startTime);
-
-            let data;
-            try {
-                data = await proxyRes.json();
-            } catch (e) {
-                throw new Error("サーバー応答がJSONではありません（PHPの実行エラーの可能性があります）");
-            }
-
-            if (data && data.error && (!data.status || data.status === 0)) {
-                throw new Error(String(data.error));
-            }
-            if (!proxyRes.ok) {
-                throw new Error(data && data.error ? String(data.error) : `HTTP ${proxyRes.status}`);
-            }
-
-            const status = typeof data.status === "number" ? data.status : 0;
-            const serverDuration = typeof data.duration_ms === "number" ? data.duration_ms : clientDuration;
-            const ok = typeof data.ok === "boolean" ? data.ok : (status >= 200 && status < 300);
-
-            statusTag.innerText = `Status: ${status} (${serverDuration}ms)`;
-            statusTag.style.color = ok ? "#28a745" : "#dc3545";
-
-            const contentType = String(data.responseContentType || "").toLowerCase();
-            const headersRaw = String(data.responseHeaders || "");
-            let rawData = data.body !== undefined && data.body !== null ? String(data.body) : "";
-            let formattedData = rawData;
-
-            if (contentType.includes("application/json") && formattedData) {
-                try {
-                    formattedData = JSON.stringify(JSON.parse(formattedData), null, 4);
-                } catch (e) {
-                    /* 整形できない場合は生テキストのまま */
-                }
-            }
-
-            if (!rawData) {
-                rawData = "(empty body)";
-                formattedData = "(empty body)";
-            }
-            setResponseTexts(rawData, formattedData, headersRaw);
-
+            const payload = buildRequestPayloadFromForm();
+            const result = await executeRequestPayload(payload);
+            statusTag.innerText = `Status: ${result.status} (${result.serverDuration}ms)`;
+            statusTag.style.color = result.ok ? "#28a745" : "#dc3545";
+            setResponseTexts(result.rawData, result.formattedData, result.headersRaw);
         } catch (error) {
-            output.classList.add('error');
+            output.classList.add("error");
             statusTag.innerText = "Error";
             statusTag.style.color = "#dc3545";
             const errText = `[リクエスト失敗]\n${error.message}\n\n可能性が高い原因:\n1. URLが間違っている\n2. 相手サーバーが応答しない / SSLエラー\n3. PHPのcURLが無効、またはネットワーク接続エラー\n4. サーバー側がhttp/https以外を拒否しています`;
@@ -1788,6 +2005,81 @@ if (isset($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] === 'POST') 
         } finally {
             btn.disabled = false;
             btn.innerText = originalBtnLabel;
+        }
+    }
+
+    async function runCollectionRequests(group) {
+        if (collectionRunInProgress) {
+            return;
+        }
+        closeTopPanels();
+        const normalizedGroup = normalizeCollectionPath(group) || "local";
+        const entries = savedRequests
+            .filter((item) => (normalizeCollectionPath(item?.path || "") || "local") === normalizedGroup)
+            .sort((a, b) => {
+                const left = getSavedItemFileKey(a) || "";
+                const right = getSavedItemFileKey(b) || "";
+                return left.localeCompare(right);
+            });
+        if (!entries.length) {
+            alert(`Collection "${normalizedGroup}" にリクエストがありません。`);
+            return;
+        }
+        collectionRunInProgress = true;
+        renderSavedRequests();
+        const sendBtn = document.getElementById("sendBtn");
+        const statusTag = document.getElementById("statusTag");
+        const output = document.getElementById("output");
+        const originalSendLabel = sendBtn.innerText;
+        const variableValues = getVariableValues();
+        let successCount = 0;
+        const failed = [];
+        output.classList.remove("error");
+        setResponseTexts("Running collection...", "Running collection...", "");
+        statusTag.innerText = "";
+        pushBatchToast(`[${normalizedGroup}] Run All started (${entries.length} requests)`, "info", 6000);
+
+        try {
+            sendBtn.disabled = true;
+            sendBtn.innerText = "Batch Running...";
+            for (let i = 0; i < entries.length; i += 1) {
+                const item = entries[i];
+                const config = normalizeSavedItemConfig(item);
+                const label = String(config.title || config.url || getSavedItemFileKey(item) || `request_${i + 1}`);
+                try {
+                    const payload = buildRequestPayloadFromConfig(config, variableValues);
+                    const result = await executeRequestPayload(payload);
+                    if (result.ok) {
+                        successCount += 1;
+                        pushBatchToast(`[OK ${result.status}] ${label} (${result.serverDuration}ms)`, "ok");
+                        statusTag.innerText = `Status: ${result.status} (${result.serverDuration}ms)`;
+                        statusTag.style.color = "#28a745";
+                    } else {
+                        failed.push(`[${result.status}] ${label}`);
+                        pushBatchToast(`[NG ${result.status}] ${label} (${result.serverDuration}ms)`, "error", 0);
+                        statusTag.innerText = `Status: ${result.status} (${result.serverDuration}ms)`;
+                        statusTag.style.color = "#dc3545";
+                    }
+                    setResponseTexts(result.rawData, result.formattedData, result.headersRaw);
+                } catch (error) {
+                    failed.push(`[ERROR] ${label}: ${error.message}`);
+                    pushBatchToast(`[ERROR] ${label}: ${error.message}`, "error", 0);
+                    statusTag.innerText = "Error";
+                    statusTag.style.color = "#dc3545";
+                }
+            }
+            if (failed.length) {
+                output.classList.add("error");
+            }
+            const totalCount = entries.length;
+            const failedCount = failed.length;
+            const summaryMessage = `[SUMMARY]\nCollection: ${normalizedGroup}\nTotal: ${totalCount}\nSuccess: ${successCount}\nFailed: ${failedCount}`;
+            pushBatchToast(summaryMessage, failedCount > 0 ? "error" : "ok", 0, "summary");
+        } finally {
+            sendBtn.disabled = false;
+            sendBtn.innerText = originalSendLabel;
+            collectionRunInProgress = false;
+            renderSavedRequests();
         }
     }
 
@@ -2176,6 +2468,8 @@ if (isset($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] === 'POST') 
         }
 
         for (const group of orderedGroups) {
+            const headerRow = document.createElement("div");
+            headerRow.className = "saved-collection-header";
             const toggle = document.createElement("button");
             toggle.type = "button";
             toggle.className = "saved-collection-toggle";
@@ -2197,7 +2491,18 @@ if (isset($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] === 'POST') 
                 }
                 renderSavedRequests();
             });
-            list.appendChild(toggle);
+            headerRow.appendChild(toggle);
+            const runAllBtn = document.createElement("button");
+            runAllBtn.type = "button";
+            runAllBtn.className = "saved-collection-run";
+            runAllBtn.textContent = "Run All";
+            runAllBtn.disabled = collectionRunInProgress;
+            runAllBtn.addEventListener("click", async (event) => {
+                event.stopPropagation();
+                await runCollectionRequests(group);
+            });
+            headerRow.appendChild(runAllBtn);
+            list.appendChild(headerRow);
 
             const entriesWrap = document.createElement("div");
             entriesWrap.className = "saved-collection-items";
