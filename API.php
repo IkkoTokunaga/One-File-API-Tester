@@ -2066,10 +2066,6 @@ if (isset($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] === 'POST') 
 
     async function saveImportedRequest(config, fileName, importOptions = {}) {
         const normalizedConfig = normalizeImportedConfig(config);
-        const importedVariables = (config?.variables && typeof config.variables === "object")
-            ? config.variables
-            : {};
-        await mergeSharedVariables(importedVariables);
         const rawImportName = (fileName || "unnamed").replace(/\.json$/i, "");
         const overwriteFileBase = sanitizeFileBase(rawImportName);
         await saveCurrentRequestToHistory("import", {
@@ -2382,28 +2378,6 @@ if (isset($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] === 'POST') 
         } finally {
             sharedVariablesLoading = false;
         }
-    }
-
-    async function mergeSharedVariables(variablesIn) {
-        if (!variablesIn || typeof variablesIn !== "object") {
-            return;
-        }
-        const current = getVariableValues();
-        let changed = false;
-        for (const [rawKey, rawValue] of Object.entries(variablesIn)) {
-            const key = normalizeVariableKey(String(rawKey || ""));
-            if (!key) continue;
-            const value = String(rawValue ?? "");
-            if (!Object.prototype.hasOwnProperty.call(current, key)) {
-                current[key] = value;
-                changed = true;
-            }
-        }
-        if (!changed) {
-            return;
-        }
-        setVariableRows(Object.entries(current));
-        await saveSharedVariablesNow(false);
     }
 
     function getBodyKeyValueParams(variableValues) {

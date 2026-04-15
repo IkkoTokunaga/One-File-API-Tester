@@ -89,10 +89,6 @@ php -S 127.0.0.1:8000
   "bodyParams": {
     "email": "{{Email}}",
     "password": "{{Password}}"
-  },
-  "variables": {
-    "Email": "user@example.com",
-    "Password": "secret"
   }
 }
 ```
@@ -107,12 +103,12 @@ php -S 127.0.0.1:8000
 - `contentType` (`content-type` でも可)
 - `body` (文字列、またはオブジェクト)
 - `bodyParams` (フォーム送信用のキー/値オブジェクト)
-- `variables` (Shared Variables にマージされるキー/値)
 
 ### 補足
 
 - インポート時の保存ファイル名は、基本的に **インポートしたJSONファイル名** が使われます。
 - `contentType` が `application/json` の場合、`body` は保存時にJSONとして正規化されます。
+- 置換に使う変数は、常に `api_tool_shared_variables/variables.json` の共有変数です（インポートJSON側の個別 `variables` は使用しません）。
 
 ## よくあるエラー
 
