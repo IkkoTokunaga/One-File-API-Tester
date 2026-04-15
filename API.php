@@ -1477,6 +1477,14 @@ if (isset($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] === 'POST') 
             background: #f1f5f9;
         }
 
+        .batch-toast--clickable {
+            cursor: pointer;
+        }
+
+        .batch-toast--clickable:hover {
+            filter: brightness(0.98);
+        }
+
         @keyframes saveBtnFlash {
             0% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.55); }
             100% { box-shadow: 0 0 0 14px rgba(34, 197, 94, 0); }
@@ -1789,7 +1797,7 @@ if (isset($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] === 'POST') 
         return `Saved: ${short}.json`;
     }
 
-    function pushBatchToast(message, type = "info", timeoutMs = 14000, variant = "") {
+    function pushBatchToast(message, type = "info", timeoutMs = 14000, variant = "", options = {}) {
         const stack = document.getElementById("batchToastStack");
         if (!stack) return;
         const toast = document.createElement("div");
@@ -1799,12 +1807,29 @@ if (isset($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] === 'POST') 
         toast.className = `batch-toast${normalizedType === "ok" ? " batch-toast--ok" : ""}${normalizedType === "error" ? " batch-toast--error" : ""}${normalizedVariant === "summary" ? " batch-toast--summary" : ""}`;
         const textEl = document.createElement("div");
         textEl.textContent = String(message || "");
+        const onClick = typeof options?.onClick === "function" ? options.onClick : null;
+        if (onClick) {
+            toast.classList.add("batch-toast--clickable");
+            toast.setAttribute("role", "button");
+            toast.setAttribute("tabindex", "0");
+            toast.setAttribute("aria-label", "Load this request into form");
+            toast.addEventListener("click", () => {
+                onClick();
+            });
+            toast.addEventListener("keydown", (event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    onClick();
+                }
+            });
+        }
         const closeBtn = document.createElement("button");
         closeBtn.type = "button";
         closeBtn.className = "batch-toast__close";
         closeBtn.textContent = "×";
         closeBtn.setAttribute("aria-label", "Close");
-        closeBtn.addEventListener("click", () => {
+        closeBtn.addEventListener("click", (event) => {
+            event.stopPropagation();
             toast.remove();
         });
         toast.append(textEl, closeBtn);
@@ -2110,12 +2135,40 @@ if (isset($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] === 'POST') 
                     processedCount += 1;
                     if (result.ok) {
                         successCount += 1;
-                        pushBatchToast(`[OK ${result.status}] ${label} (${result.serverDuration}ms)`, "ok");
+                        pushBatchToast(
+                            `[OK ${result.status}] ${label} (${result.serverDuration}ms)`,
+                            "ok",
+                            14000,
+                            "",
+                            {
+                                onClick: () => {
+                                    if (collectionRunInProgress) return;
+                                    applySavedItemToForm(item);
+                                    setResponseTexts(result.rawData, result.formattedData, result.headersRaw);
+                                    statusTag.innerText = `Status: ${result.status} (${result.serverDuration}ms)`;
+                                    statusTag.style.color = "#28a745";
+                                }
+                            }
+                        );
                         statusTag.innerText = `Status: ${result.status} (${result.serverDuration}ms)`;
                         statusTag.style.color = "#28a745";
                     } else {
                         failed.push(`[${result.status}] ${label}`);
-                        pushBatchToast(`[NG ${result.status}] ${label} (${result.serverDuration}ms)`, "error", 0);
+                        pushBatchToast(
+                            `[NG ${result.status}] ${label} (${result.serverDuration}ms)`,
+                            "error",
+                            0,
+                            "",
+                            {
+                                onClick: () => {
+                                    if (collectionRunInProgress) return;
+                                    applySavedItemToForm(item);
+                                    setResponseTexts(result.rawData, result.formattedData, result.headersRaw);
+                                    statusTag.innerText = `Status: ${result.status} (${result.serverDuration}ms)`;
+                                    statusTag.style.color = "#dc3545";
+                                }
+                            }
+                        );
                         statusTag.innerText = `Status: ${result.status} (${result.serverDuration}ms)`;
                         statusTag.style.color = "#dc3545";
                     }
@@ -2128,7 +2181,22 @@ if (isset($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] === 'POST') 
                     }
                     processedCount += 1;
                     failed.push(`[ERROR] ${label}: ${error.message}`);
-                    pushBatchToast(`[ERROR] ${label}: ${error.message}`, "error", 0);
+                    pushBatchToast(
+                        `[ERROR] ${label}: ${error.message}`,
+                        "error",
+                        0,
+                        "",
+                        {
+                            onClick: () => {
+                                if (collectionRunInProgress) return;
+                                applySavedItemToForm(item);
+                                const errText = `[リクエスト失敗]\n${error.message}`;
+                                setResponseTexts(errText, errText, "");
+                                statusTag.innerText = "Error";
+                                statusTag.style.color = "#dc3545";
+                            }
+                        }
+                    );
                     statusTag.innerText = "Error";
                     statusTag.style.color = "#dc3545";
                 }
