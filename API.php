@@ -1264,6 +1264,18 @@ if (isset($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] === 'POST') 
             background: #fdba74;
         }
 
+        .stop-btn {
+            width: auto;
+            min-width: 96px;
+            background: #fee2e2;
+            color: #991b1b;
+            border: 1px solid #fca5a5;
+        }
+
+        .stop-btn:hover {
+            background: #fecaca;
+        }
+
         .send-inline-btn {
             color: #fff;
             background: linear-gradient(135deg, var(--primary), #fb923c);
@@ -1494,6 +1506,7 @@ if (isset($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] === 'POST') 
         <h1>One-File API Tester</h1>
         <div class="top-tools">
         <button type="button" id="manualSaveBtn" class="tool-btn save-btn" onclick="void saveCurrentRequestManually()">Save</button>
+        <button type="button" id="emergencyStopBtn" class="tool-btn stop-btn hidden" onclick="requestBatchStop()">Stop Execution</button>
         <button type="button" class="tool-btn" onclick="toggleSavedPanel()">Collections</button>
         <button type="button" class="tool-btn gear-btn" onclick="toggleSettingsPanel()" aria-label="Settings">⚙</button>
         <input type="file" id="bulkRequestFileInput" accept=".json,application/json" multiple class="hidden">
@@ -1629,6 +1642,8 @@ if (isset($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] === 'POST') 
     let responseFormattedText = "";
     let responseHeadersText = "";
     let collectionRunInProgress = false;
+    let batchAbortRequested = false;
+    let batchAbortController = null;
     const BATCH_TOAST_MAX_COUNT = 8;
 
     function renderResponseBody() {
@@ -1809,6 +1824,38 @@ if (isset($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] === 'POST') 
         }
     }
 
+    function updateEmergencyStopButton() {
+        const stopBtn = document.getElementById("emergencyStopBtn");
+        if (!stopBtn) return;
+        if (!collectionRunInProgress) {
+            stopBtn.classList.add("hidden");
+            stopBtn.disabled = false;
+            stopBtn.textContent = "Stop Execution";
+            return;
+        }
+        stopBtn.classList.remove("hidden");
+        stopBtn.disabled = batchAbortRequested;
+        stopBtn.textContent = batchAbortRequested ? "Stopping..." : "Stop Execution";
+    }
+
+    function requestBatchStop() {
+        if (!collectionRunInProgress || batchAbortRequested) {
+            return;
+        }
+        batchAbortRequested = true;
+        if (batchAbortController) {
+            batchAbortController.abort();
+        }
+        updateEmergencyStopButton();
+        pushBatchToast("Emergency stop requested", "error", 0);
+    }
+
+    function clearBatchToasts() {
+        const stack = document.getElementById("batchToastStack");
+        if (!stack) return;
+        stack.replaceChildren();
+    }
+
     async function apiJsonPost(payload) {
         const res = await fetch(API_PROXY_ENDPOINT, {
             method: "POST",
@@ -1933,12 +1980,13 @@ if (isset($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] === 'POST') 
         return { url, method, headers, body };
     }
 
-    async function executeRequestPayload(payload) {
+    async function executeRequestPayload(payload, signal = undefined) {
         const startTime = performance.now();
         const proxyRes = await fetch(API_PROXY_ENDPOINT, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ action: "http_request", ...payload })
+            body: JSON.stringify({ action: "http_request", ...payload }),
+            signal
         });
         const endTime = performance.now();
         const clientDuration = Math.round(endTime - startTime);
@@ -2026,12 +2074,17 @@ if (isset($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] === 'POST') 
             return;
         }
         collectionRunInProgress = true;
+        batchAbortRequested = false;
+        batchAbortController = null;
+        clearBatchToasts();
+        updateEmergencyStopButton();
         renderSavedRequests();
         const sendBtn = document.getElementById("sendBtn");
         const statusTag = document.getElementById("statusTag");
         const output = document.getElementById("output");
         const originalSendLabel = sendBtn.innerText;
         const variableValues = getVariableValues();
+        let processedCount = 0;
         let successCount = 0;
         const failed = [];
         output.classList.remove("error");
@@ -2043,12 +2096,18 @@ if (isset($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] === 'POST') 
             sendBtn.disabled = true;
             sendBtn.innerText = "Batch Running...";
             for (let i = 0; i < entries.length; i += 1) {
+                if (batchAbortRequested) {
+                    break;
+                }
                 const item = entries[i];
                 const config = normalizeSavedItemConfig(item);
                 const label = String(config.title || config.url || getSavedItemFileKey(item) || `request_${i + 1}`);
                 try {
                     const payload = buildRequestPayloadFromConfig(config, variableValues);
-                    const result = await executeRequestPayload(payload);
+                    batchAbortController = new AbortController();
+                    const result = await executeRequestPayload(payload, batchAbortController.signal);
+                    batchAbortController = null;
+                    processedCount += 1;
                     if (result.ok) {
                         successCount += 1;
                         pushBatchToast(`[OK ${result.status}] ${label} (${result.serverDuration}ms)`, "ok");
@@ -2062,6 +2121,12 @@ if (isset($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] === 'POST') 
                     }
                     setResponseTexts(result.rawData, result.formattedData, result.headersRaw);
                 } catch (error) {
+                    batchAbortController = null;
+                    if (batchAbortRequested && error?.name === "AbortError") {
+                        pushBatchToast(`Stopped: ${label}`, "error", 0);
+                        break;
+                    }
+                    processedCount += 1;
                     failed.push(`[ERROR] ${label}: ${error.message}`);
                     pushBatchToast(`[ERROR] ${label}: ${error.message}`, "error", 0);
                     statusTag.innerText = "Error";
@@ -2073,12 +2138,16 @@ if (isset($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] === 'POST') 
             }
             const totalCount = entries.length;
             const failedCount = failed.length;
-            const summaryMessage = `[SUMMARY]\nCollection: ${normalizedGroup}\nTotal: ${totalCount}\nSuccess: ${successCount}\nFailed: ${failedCount}`;
-            pushBatchToast(summaryMessage, failedCount > 0 ? "error" : "ok", 0, "summary");
+            const resultType = batchAbortRequested || failedCount > 0 ? "error" : "ok";
+            const summaryMessage = `[SUMMARY]\nCollection: ${normalizedGroup}\nTotal: ${totalCount}\nProcessed: ${processedCount}\nSuccess: ${successCount}\nFailed: ${failedCount}${batchAbortRequested ? "\nStopped: yes" : ""}`;
+            pushBatchToast(summaryMessage, resultType, 0, "summary");
         } finally {
             sendBtn.disabled = false;
             sendBtn.innerText = originalSendLabel;
             collectionRunInProgress = false;
+            batchAbortRequested = false;
+            batchAbortController = null;
+            updateEmergencyStopButton();
             renderSavedRequests();
         }
     }
